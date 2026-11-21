@@ -65,7 +65,8 @@ def parse_args():
     p.add_argument("--audio-rate", type=int, default=48000,
                    help="audio sample rate (default 48000; try 44100 if the device refuses it)")
     p.add_argument("--list-audio", action="store_true", help="list audio devices and exit")
-    return p.parse_args()
+    # parse_known_args: ignore extra arguments (e.g. ones added by the GUI or an IDE)
+    return p.parse_known_args()[0]
 
 
 def open_camera(index):
@@ -101,7 +102,7 @@ def find_device(sd, name, kind):
     if name is None:
         idx = sd.default.device[0 if kind == "input" else 1]
         if idx is None or idx < 0:
-            sys.exit(f"No default audio {kind} device. Use --list-audio.")
+            raise RuntimeError(f"No default audio {kind} device. Use --list-audio.")
         return idx
     if str(name).isdigit():
         return int(name)
@@ -109,7 +110,7 @@ def find_device(sd, name, kind):
     for i, d in enumerate(sd.query_devices()):
         if name.lower() in d["name"].lower() and d[key] > 0:
             return i
-    sys.exit(f'No audio {kind} device matching "{name}". Use --list-audio.')
+    raise RuntimeError(f'No audio {kind} device matching "{name}". Use --list-audio.')
 
 
 class AudioDelay:
@@ -175,7 +176,12 @@ class AudioDelay:
                     pass
 
 
-def main():
+def launch_virt_camera(width, height, fps, delay, key, sign, stop_event=None):
+    """Run the delayed virtual camera until stop_event is set (or forever if None).
+
+    Errors are raised as exceptions rather than sys.exit(): inside a thread,
+    sys.exit() is silently ignored, so the GUI would never show what went wrong.
+    """
     args = parse_args()
 
     if args.list:
@@ -187,52 +193,51 @@ def main():
 
     audio = None
     if args.audio_out:
-        audio = AudioDelay(args.delay, args.audio_in, args.audio_out, args.audio_rate)
+        audio = AudioDelay(delay, args.audio_in, args.audio_out, args.audio_rate)
 
     cap = open_camera(args.camera)
     if not cap.isOpened():
-        sys.exit(f"Could not open camera {args.camera}. Try --list.")
-
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    cap.set(cv2.CAP_PROP_FPS, args.fps)
-
-    ok, frame = cap.read()
-    if not ok:
-        cap.release()
-        sys.exit("Camera opened but returned no frames.")
-
-    # The camera may not honour the requested size, so use what it really gives.
-    height, width = frame.shape[:2]
-    black = np.zeros((height, width, 3), dtype=np.uint8)
-
-    def pack(f):
-        if args.jpeg:
-            return cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 90])[1]
-        return f
-
-    def unpack(f):
-        return cv2.imdecode(f, cv2.IMREAD_COLOR) if args.jpeg else f
-
-    # Each entry is (capture_time, frame). Only frames newer than
-    # (now - delay) plus one older "current" frame are kept, so memory is bounded.
-    buffer = deque()
+        raise RuntimeError(f"Could not open camera {args.camera}. Try --list.")
 
     try:
-        with pyvirtualcam.Camera(width=width, height=height, fps=args.fps,
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        cap.set(cv2.CAP_PROP_FPS, fps)
+
+        ok, frame = cap.read()
+        if not ok:
+            raise RuntimeError("Camera opened but returned no frames.")
+
+        # The camera may not honour the requested size, so use what it really gives.
+        height, width = frame.shape[:2]
+        black = np.zeros((height, width, 3), dtype=np.uint8)
+
+        def pack(f):
+            if args.jpeg:
+                return cv2.imencode(".jpg", f, [cv2.IMWRITE_JPEG_QUALITY, 90])[1]
+            return f
+
+        def unpack(f):
+            return cv2.imdecode(f, cv2.IMREAD_COLOR) if args.jpeg else f
+
+        # Each entry is (capture_time, frame). Only frames newer than
+        # (now - delay) plus one older "current" frame are kept, so memory is bounded.
+        buffer = deque()
+
+        with pyvirtualcam.Camera(width=width, height=height, fps=fps,
                                  fmt=PixelFormat.BGR, device=args.device) as cam:
-            print(f"Virtual camera: {cam.device}  ({width}x{height} @ {args.fps} fps)")
+            print(f"Virtual camera: {cam.device}  ({width}x{height} @ {fps} fps)")
             if audio:
                 audio.start()
-            print(f"Delay: {args.delay}s - black/silent until the buffer fills. Ctrl+C to quit.")
+            print(f"Delay: {delay}s - black/silent until the buffer fills.")
 
-            while True:
+            while stop_event is None or not stop_event.is_set():
                 now = time.monotonic()
                 buffer.append((now, pack(frame)))
 
                 # Drop frames that are superseded by a newer frame that is
                 # still old enough to be shown.
-                target = now - args.delay
+                target = now - delay
                 while len(buffer) > 1 and buffer[1][0] <= target:
                     buffer.popleft()
 
@@ -244,15 +249,10 @@ def main():
                 if not ok:
                     print("Lost the camera feed, stopping.")
                     break
-    except KeyboardInterrupt:
-        print("\nStopped.")
-    except Exception as e:  # e.g. no virtual camera driver, or audio device refused
-        sys.exit(f"Error: {e}")
+
+            print("Virtual camera stopped.")
     finally:
+        # Always free the real webcam and the audio streams, even after an error.
         if audio:
             audio.stop()
         cap.release()
-
-
-if __name__ == "__main__":
-    main()

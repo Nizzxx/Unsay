@@ -19,6 +19,7 @@ cameras = []
 cam_selected = VirtualCamera("Cam1")
 is_selected = True
 is_camera_running = False
+cam_thread = None
 
 # Display error
 def error_message(title: str, message: str):
@@ -71,10 +72,21 @@ def display_options(camera: VirtualCamera):
     slider_value_label = ctk.CTkLabel(delay_frame, text=f"{slider_value}s")
     slider_value_label.grid(row=0, column=2, padx=5)
 
+# Run the camera in the background thread
+def run_camera(camera: VirtualCamera):
+    global is_camera_running
+
+    try:
+        camera.start()
+    finally:
+        # Runs when the camera is stopped, but also if it crashes,
+        # so the Start button never gets stuck in the "running" state.
+        is_camera_running = False
+
 # Start virtual camera
 def start_camera(camera: VirtualCamera):
-    global is_camera_running
-    
+    global is_camera_running, cam_thread
+
     if not is_selected:
         error_message("Camera Error", "Error: No Camera Selected")
         return 0
@@ -84,8 +96,21 @@ def start_camera(camera: VirtualCamera):
         return 0
 
     is_camera_running = True
-    cam_thread = threading.Thread(target=cam_selected.start)
+    cam_thread = threading.Thread(target=run_camera, args=(camera,), daemon=True)
     cam_thread.start()
+
+# Stop virtual camera
+def stop_camera(camera: VirtualCamera):
+    if not is_camera_running:
+        error_message("Camera Error", "No camera is running")
+        return 0
+
+    camera.stop()  # asks the camera loop to exit
+
+    if cam_thread is not None:
+        cam_thread.join(timeout=3)  # wait briefly so Start works right after Stop
+        if cam_thread.is_alive():
+            error_message("Camera Error", "The camera is taking a while to stop. Try again in a moment.")
 
 # Preview virtual camera
 def preview_camera(camera: VirtualCamera):
@@ -99,11 +124,26 @@ def update_camera(camera: VirtualCamera):
         error_message("Camera Error", "Error: No Camera Selected")
         return 0
 
+# Keep Start/Stop buttons in sync with the camera state
+def refresh_buttons():
+    start_button.configure(state="disabled" if is_camera_running else "normal")
+    stop_button.configure(state="normal" if is_camera_running else "disabled")
+    app.after(250, refresh_buttons)
+
+# Stop the camera before the window closes
+def on_close():
+    if is_camera_running:
+        cam_selected.stop()
+        if cam_thread is not None:
+            cam_thread.join(timeout=3)
+    app.destroy()
+
 # Window parametrization
 app = ctk.CTk()
 app.title("Unsay")
 app.geometry(f"{WIDTH}x{HEIGHT}")
 app.resizable(False, False)
+app.protocol("WM_DELETE_WINDOW", on_close)
 
 dashboard_label = ctk.CTkLabel(app, text="Dashboard", font=FONT1)
 dashboard_label.pack(pady=10)
@@ -134,13 +174,24 @@ bottom_frame.pack(pady=10)
 start_button = ctk.CTkButton(bottom_frame, text="Start Camera", command=lambda: start_camera(cam_selected))
 start_button.grid(row=0, column=0)
 
+stop_button = ctk.CTkButton(
+    bottom_frame,
+    text="Stop Camera",
+    fg_color="#c0392b",
+    hover_color="#962d22",
+    state="disabled",
+    command=lambda: stop_camera(cam_selected)
+)
+stop_button.grid(row=0, column=1, padx=(10, 0))
+
 preview_button = ctk.CTkButton(bottom_frame, text="Preview Camera", command=lambda: preview_camera(cam_selected))
-preview_button.grid(row=0, column=1, padx=10)
+preview_button.grid(row=0, column=2, padx=10)
 
 update_button = ctk.CTkButton(bottom_frame, text="Update Camera", command=lambda: update_camera(cam_selected))
-update_button.grid(row=0, column=2)
+update_button.grid(row=0, column=3)
 
 display_options(cam_selected)
+refresh_buttons()
 
 # Run App !
 app.mainloop()

@@ -1,3 +1,5 @@
+import threading
+
 from modules import settings_manager, camera
 
 class VirtualCamera:
@@ -14,8 +16,18 @@ class VirtualCamera:
         self.height = self.settings['video']['height']
         self.fps = self.settings['video']['fps']
 
+        # Set by stop(); camera.launch_virt_camera checks it to know when to exit
+        self._stop_event = threading.Event()
+
     def start(self):
-        camera.launch_virt_camera(self.width, self.height, self.fps, self.delay, self.key, self.sign)
+        self._stop_event.clear()
+        camera.launch_virt_camera(
+            self.width, self.height, self.fps, self.delay, self.key, self.sign,
+            stop_event=self._stop_event
+        )
+
+    def stop(self):
+        self._stop_event.set()
 
     def modify_settings(self):
         self.settings['video']['delay'] = self.delay

@@ -3,8 +3,8 @@ import camera
 
 class VirtualCamera:
 
-    def init(self, cam_num=0):
-        self.cam_name = 'cam' + str(cam_num)
+    def __init__(self, cam_name):
+        self.cam_name = cam_name
         self.settings = settings_manager.get_settings(self.cam_name)
 
         self.delay = self.settings['video']['delay']
@@ -29,7 +29,7 @@ class VirtualCamera:
 
         settings_manager.save_settings(self.settings, self.cam_name)
 
-cam = VirtualCamera(1)
+cam = VirtualCamera("Cacaboudin")
 cam.fps = 60
 cam.modify_settings()
 cam.start()

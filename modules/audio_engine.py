@@ -258,7 +258,7 @@ class DelayCore:
         with self.lock:
             frames = round(seconds / self.frame_s)
             self.max_frames = frames
-            self.min_frames = min(frames, round(0.5 / self.frame_s)) if self.smart else frames
+            self.min_frames = min(frames, round(1.0 / self.frame_s)) if self.smart else frames
             self.safe_frames = max(frames + round(1.0 / self.frame_s), round(2.0 / self.frame_s))
             target = self.safe_frames if self.safe_mode else frames
             need = target - len(self.queue)
@@ -267,11 +267,12 @@ class DelayCore:
         return seconds
 
     def set_smart(self, on):
-        """Smart delay: full delay while you talk (time to unsay), only 0.5 s while you
+        """Smart delay: full delay while you talk (time to unsay), only 1 s while you
         listen, so your replies come back quickly. Changes happen in silence only."""
         with self.lock:
             self.smart = bool(on)
-            self.min_frames = min(self.max_frames, round(0.5 / self.frame_s)) if self.smart \
+            self.stretch_every = 1 if self.smart else 2   # smart: rebuild the delay 2x faster
+            self.min_frames = min(self.max_frames, round(1.0 / self.frame_s)) if self.smart \
                 else self.max_frames
             if not self.smart and len(self.queue) < self.max_frames:
                 self.queue.extend((self.silence, False, None)

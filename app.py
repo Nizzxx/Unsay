@@ -35,7 +35,7 @@ CAMERA_OFF = "Off (audio only)"
 NO_CABLE = "no virtual cable found"
 
 # ---- look -------------------------------------------------------------------
-WIDTH, HEIGHT = 1000, 680
+WIDTH, HEIGHT = 1000, 700
 PREVIEW_W, PREVIEW_H = 464, 261
 
 BG = "#0e1014"
@@ -174,13 +174,13 @@ class UnsayApp(ctk.CTk):
         body.pack(fill="both", expand=True, padx=28)
 
         # ------------------------------------------------------ left card
-        left = self._card(body, 400, 548)
+        left = self._card(body, 400, 570)
         left.pack(side="left", fill="y")
 
         self._section(left, "PROTECTION")
         self.delay_slider, self.delay_value = self._slider(left, "Unsay window", 0.5, 5.0, 9,
                                                            self.on_delay)
-        self.smart_switch = self._switch(left, "Smart delay", "Drops to 0.5 s while you only listen",
+        self.smart_switch = self._switch(left, "Smart delay", "On for conversations, off for interviews & meetings",
                                          self.on_smart)
         self.safe_switch = self._switch(left, "Safe mode", "+1 s extra for sensitive moments",
                                         self.on_safe)
@@ -217,7 +217,7 @@ class UnsayApp(ctk.CTk):
                                          self._save_soon)
 
         # ----------------------------------------------------- right card
-        right = self._card(body, 516, 548)
+        right = self._card(body, 516, 570)
         right.pack(side="right", fill="y")
 
         top = ctk.CTkFrame(right, fg_color="transparent")

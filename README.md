@@ -57,8 +57,9 @@ python app.py          # desktop app   (macOS: python3 app.py)
 python unsay.py --audio-out "BlackHole" --camera 2 --delay 1.5 --undo-key f9   # command-line version
 ```
 
-In the app: pick your microphone, **Send audio to: BlackHole 2ch** (Mac) / **CABLE Input** (Windows),
-your real camera (use **Find**; don't pick OBS Virtual Camera itself), a delay, then **Start**.
+In the app: pick your real camera (use **Find**; don't pick OBS Virtual Camera itself) and an
+Unsay window, then **Start**. Unsay detects your microphone and the virtual cable by itself.
+Smart delay: on for conversations, off for interviews and meetings.
 
 Then in Zoom/Discord choose:
 - **Microphone:** `BlackHole 2ch` (Mac) / `CABLE Output` (Windows)

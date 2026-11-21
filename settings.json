@@ -44,7 +44,7 @@
   "cam0": {
     "name": "Hashem Al Drous",
     "audio": {
-      "audio_in": "MacBook Pro Microphone",
+      "audio_in": null,
       "audio_out": "BlackHole 2ch"
     },
     "video": {

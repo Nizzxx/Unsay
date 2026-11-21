@@ -32,7 +32,7 @@ def _merge(defaults, saved):
 
 def _read_all():
     try:
-        with open(SETTINGS_PATH, "r") as f:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -46,7 +46,7 @@ def get_settings(cam_name: str = "cam0") -> dict:
 def save_settings(settings: dict, cam_name: str = "cam0"):
     data = _read_all()
     data[cam_name] = settings
-    with open(SETTINGS_PATH, "w") as f:
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 

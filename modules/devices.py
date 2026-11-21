@@ -28,34 +28,56 @@ from modules.video_engine import VideoSync
 # --------------------------------------------------------------------------- #
 #  Device discovery (for drop-down menus)
 # --------------------------------------------------------------------------- #
-VIRTUAL_OUT_HINTS = ("blackhole", "cable input", "vb-audio")
+VIRTUAL_OUT_HINTS = ("blackhole", "cable input", "cable in ", "vb-audio")
+VIRTUAL_IN_HINTS = ("blackhole", "cable output", "cable out ", "obs virtual")
+
+
+def _usable_devices():
+    """Windows lists each device 3-4 times (MME/DirectSound/WASAPI/WDM-KS) and some
+    copies refuse 48 kHz: keep one copy (DirectSound, else MME)."""
+    import sounddevice as sd
+    devs = list(enumerate(sd.query_devices()))
+    if sys.platform != "win32":
+        return devs
+    apis = sd.query_hostapis()
+    for wanted in ("Windows DirectSound", "MME"):
+        ids = [i for i, a in enumerate(apis) if a["name"] == wanted]
+        if ids:
+            keep = [(i, d) for i, d in devs if d["hostapi"] == ids[0]]
+            if keep:
+                return keep
+    return devs
 
 
 def list_microphones():
     """[(index, name)] of real input devices (virtual cables excluded)."""
-    import sounddevice as sd
-    out = []
-    for i, d in enumerate(sd.query_devices()):
-        name = d["name"]
-        if d["max_input_channels"] > 0 and not any(h in name.lower() for h in ("blackhole", "cable output")):
-            out.append((i, name))
+    out, seen = [], set()
+    for i, d in _usable_devices():
+        n = d["name"]
+        if d["max_input_channels"] > 0 and n not in seen \
+                and not any(h in n.lower() for h in VIRTUAL_IN_HINTS) \
+                and "sound mapper" not in n.lower() and "primary sound capture" not in n.lower():
+            seen.add(n)
+            out.append((i, n))
     return out
 
 
 def list_virtual_outputs():
-    """[(index, name)] of output devices, virtual cables first."""
-    import sounddevice as sd
-    devs = [(i, d["name"]) for i, d in enumerate(sd.query_devices()) if d["max_output_channels"] > 0]
-    devs.sort(key=lambda x: 0 if any(h in x[1].lower() for h in VIRTUAL_OUT_HINTS) else 1)
-    return devs
+    """[(index, name)] of VIRTUAL cables only. Real speakers/AirPods are never offered:
+    audio sent there plays into your own ears and Zoom/Discord hear nothing."""
+    out, seen = [], set()
+    for i, d in _usable_devices():
+        n = d["name"]
+        if d["max_output_channels"] > 0 and any(h in n.lower() for h in VIRTUAL_OUT_HINTS) and n not in seen:
+            seen.add(n)
+            out.append((i, n))
+    return out
 
 
 def default_virtual_output():
     """Name of the virtual cable to send audio to, or None if not installed."""
-    for _, name in list_virtual_outputs():
-        if any(h in name.lower() for h in VIRTUAL_OUT_HINTS):
-            return name
-    return None
+    outs = list_virtual_outputs()
+    return outs[0][1] if outs else None
 
 
 def list_cameras(max_index=6):

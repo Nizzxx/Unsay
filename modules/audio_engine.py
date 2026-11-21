@@ -299,7 +299,8 @@ class DelayCore:
 # --------------------------------------------------------------------------- #
 #  Audio I/O: connects DelayCore to the real mic and the virtual cable.
 # --------------------------------------------------------------------------- #
-def find_device(sd, name, kind):
+def find_device(sd, name, kind, rate=48000):
+    """Index of the device called `name` that really opens at `rate`."""
     if name is None:
         idx = sd.default.device[0 if kind == "input" else 1]
         if idx is None or idx < 0:
@@ -308,10 +309,21 @@ def find_device(sd, name, kind):
     if str(name).isdigit():
         return int(name)
     key = f"max_{kind}_channels"
-    for i, d in enumerate(sd.query_devices()):
-        if name.lower() in d["name"].lower() and d[key] > 0:
+    check = sd.check_input_settings if kind == "input" else sd.check_output_settings
+    devs = list(enumerate(sd.query_devices()))
+    exact = [i for i, d in devs if d["name"].lower() == name.lower() and d[key] > 0]
+    loose = [i for i, d in devs if d[key] > 0 and i not in exact and
+             (name.lower() in d["name"].lower() or d["name"].lower() in name.lower())]
+    candidates = exact + loose
+    if not candidates:
+        raise RuntimeError(f'No audio {kind} device matching "{name}".')
+    for i in candidates:
+        try:
+            check(device=i, samplerate=rate, channels=1)
             return i
-    raise RuntimeError(f'No audio {kind} device matching "{name}".')
+        except Exception:
+            continue
+    return candidates[0]
 
 
 def list_audio_devices():

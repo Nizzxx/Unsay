@@ -35,6 +35,7 @@ PREVIEW_W, PREVIEW_H = 384, 216
 PROFILE = "cam0"
 SYSTEM_DEFAULT = "System default"
 CAMERA_OFF = "Off (audio only)"
+NO_CABLE = "(install BlackHole / VB-Cable)"
 
 GREEN, ORANGE, RED, GRAY = "#2e7d32", "#ef6c00", "#c62828", "#757575"
 
@@ -88,7 +89,7 @@ class UnsayApp(ctk.CTk):
         self.mic_menu.grid(row=2, column=1, columnspan=2, sticky="w")
 
         label(3, "Send audio to :")
-        self.out_menu = ctk.CTkOptionMenu(left, values=["(none found)"], width=230)
+        self.out_menu = ctk.CTkOptionMenu(left, values=[NO_CABLE], width=230)
         self.out_menu.grid(row=3, column=1, columnspan=2, sticky="w")
 
         label(4, "Camera :")
@@ -120,7 +121,8 @@ class UnsayApp(ctk.CTk):
         self.hint_label = ctk.CTkLabel(
             left, font=("Verdana", 11), text_color=GRAY, justify="left", wraplength=380,
             text="In Zoom/Discord choose  Mic: BlackHole 2ch (Mac) / CABLE Output (Windows)"
-                 "  and  Camera: OBS Virtual Camera.  Don't pick OBS Virtual Camera above.")
+                 "  and  Camera: OBS Virtual Camera.  Don't pick OBS Virtual Camera above."
+                 "  Windows: pick OBS Virtual Camera in Zoom/Discord BEFORE Start.")
         self.hint_label.grid(row=9, column=0, columnspan=3, padx=10, pady=(10, 0))
 
         # ---- right: live view
@@ -167,9 +169,9 @@ class UnsayApp(ctk.CTk):
     def _load_devices(self):
         try:
             mics = [SYSTEM_DEFAULT] + [name for _, name in list_microphones()]
-            outs = [name for _, name in list_virtual_outputs()] or ["(none found)"]
+            outs = [name for _, name in list_virtual_outputs()] or [NO_CABLE]
         except Exception as e:  # PortAudio missing etc.
-            mics, outs = [SYSTEM_DEFAULT], ["(none found)"]
+            mics, outs = [SYSTEM_DEFAULT], [NO_CABLE]
             error_message("Audio", f"Could not list audio devices:\n{e}")
         self.mic_menu.configure(values=mics)
         self.out_menu.configure(values=outs)
@@ -248,7 +250,7 @@ class UnsayApp(ctk.CTk):
         settings_manager.save_settings(s, PROFILE)
         if not s["audio"]["audio_out"]:
             error_message("Virtual microphone missing",
-                          "Install BlackHole 2ch (Mac) or VB-Cable (Windows), then restart Unsay.")
+                          "No virtual audio cable found. Mac: brew install blackhole-2ch. Windows: install VB-Cable as administrator. Then restart the computer.")
             return
         try:
             parse_combo(s["controls"]["undo_key"])

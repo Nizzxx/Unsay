@@ -3,7 +3,7 @@ import camera
 
 class VirtualCamera:
 
-    def init(self, cam_num=0):
+    def __init__(self, cam_num=0):
         self.cam_name = 'cam' + str(cam_num)
         self.settings = settings_manager.get_settings(self.cam_name)
 

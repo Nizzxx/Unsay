@@ -1,6 +1,4 @@
-import settings_manager
-import camera
-
+from modules import settings_manager, camera
 
 class VirtualCamera:
 
@@ -19,4 +17,4 @@ class VirtualCamera:
         camera.launch_virt_camera(self.width, self.height, self.fps, self.delay, self.key, self.sign)
 
 cam = VirtualCamera()
-cam.start()
+#cam.start()

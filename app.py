@@ -3,6 +3,7 @@ import json
 import customtkinter as ctk
 from tkinter import messagebox
 from modules.vcam import VirtualCamera
+import threading
 
 # Set appearance mode
 ctk.set_appearance_mode("light")
@@ -15,8 +16,9 @@ FONT2 = ("Verdana", 16, "bold")
 
 # Variables
 cameras = []
-cam_selected = VirtualCamera()
-is_selected = False
+cam_selected = VirtualCamera("Cam1")
+is_selected = True
+is_camera_running = False
 
 # Display error
 def error_message(title: str, message: str):
@@ -71,9 +73,19 @@ def display_options(camera: VirtualCamera):
 
 # Start virtual camera
 def start_camera(camera: VirtualCamera):
+    global is_camera_running
+    
     if not is_selected:
         error_message("Camera Error", "Error: No Camera Selected")
         return 0
+
+    if is_camera_running:
+        error_message("Camera Error", "A Camera is already running")
+        return 0
+
+    is_camera_running = True
+    cam_thread = threading.Thread(target=cam_selected.start)
+    cam_thread.start()
 
 # Preview virtual camera
 def preview_camera(camera: VirtualCamera):

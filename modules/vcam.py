@@ -1,9 +1,8 @@
-import settings_manager
-import camera
+from modules import settings_manager, camera
 
 class VirtualCamera:
 
-    def __init__(self, cam_name):
+    def __init__(self, cam_name: str):
         self.cam_name = cam_name
         self.settings = settings_manager.get_settings(self.cam_name)
 
@@ -28,8 +27,3 @@ class VirtualCamera:
         self.settings['video']['fps'] = self.fps
 
         settings_manager.save_settings(self.settings, self.cam_name)
-
-cam = VirtualCamera("Cacaboudin")
-cam.fps = 60
-cam.modify_settings()
-cam.start()

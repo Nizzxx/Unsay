@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 delayed_cam.py - expose your webcam (and optionally your mic) as a virtual
 camera / virtual microphone, both delayed by N seconds.

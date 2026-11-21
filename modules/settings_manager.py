@@ -15,8 +15,8 @@ DEFAULT_SETTINGS = {
     "name": "",
     "audio": {"audio_in": None, "audio_out": None},
     "video": {"enabled": True, "camera": 0, "width": 1280, "height": 720, "fps": 30, "badge": True,
-              "lip_sync": 0.25},
-    "controls": {"delay": 2.0, "undo_key": "ctrl+shift+z"},
+              "lip_sync": 0.0},
+    "controls": {"delay": 2.0, "undo_key": "ctrl+shift+z", "smart_delay": True},
 }
 
 

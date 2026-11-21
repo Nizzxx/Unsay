@@ -97,7 +97,8 @@ class DelayCore:
         self.queue = deque((self.silence, False, None) for _ in range(self.min_frames))
         self.playhead = None        # capture_time of the audio being played right now
         self.freezes = []           # [start, end] capture-time ranges hidden by undo
-        self.av_offset = 0.25       # video runs this much AHEAD of the audio playhead (lip sync)
+        self.av_offset = 0.0        # video runs this much AHEAD of the audio playhead (lip sync)
+        self.smart = False          # smart delay: shrink to SMART_MIN while you only listen
 
         # VAD state
         self.noise_floor = 1e-3
@@ -256,13 +257,26 @@ class DelayCore:
         seconds = float(min(max(seconds, 0.3), 10.0))
         with self.lock:
             frames = round(seconds / self.frame_s)
-            self.min_frames = self.max_frames = frames
+            self.max_frames = frames
+            self.min_frames = min(frames, round(0.5 / self.frame_s)) if self.smart else frames
             self.safe_frames = max(frames + round(1.0 / self.frame_s), round(2.0 / self.frame_s))
             target = self.safe_frames if self.safe_mode else frames
             need = target - len(self.queue)
             if need > 0:
                 self.queue.extend((self.silence, False, None) for _ in range(need))
         return seconds
+
+    def set_smart(self, on):
+        """Smart delay: full delay while you talk (time to unsay), only 0.5 s while you
+        listen, so your replies come back quickly. Changes happen in silence only."""
+        with self.lock:
+            self.smart = bool(on)
+            self.min_frames = min(self.max_frames, round(0.5 / self.frame_s)) if self.smart \
+                else self.max_frames
+            if not self.smart and len(self.queue) < self.max_frames:
+                self.queue.extend((self.silence, False, None)
+                                  for _ in range(self.max_frames - len(self.queue)))
+        return self.smart
 
     def delay_setting(self):
         with self.lock:

@@ -1,0 +1,21 @@
+{
+  "video": {
+    "camera": 0,
+    "delay": 1,
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "device": null,
+    "jpeg": false
+  },
+  "audio": {
+    "enabled": false,
+    "audio_in": null,
+    "audio_out": null,
+    "audio_rate": 48000
+  },
+  "controls": {
+    "key": "G",
+    "sign": "Left_hand"
+  }
+}

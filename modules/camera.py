@@ -175,7 +175,7 @@ class AudioDelay:
                     pass
 
 
-def main():
+def launch_virt_camera(width, height, fps, delay, key, sign):
     args = parse_args()
 
     if args.list:
@@ -187,15 +187,15 @@ def main():
 
     audio = None
     if args.audio_out:
-        audio = AudioDelay(args.delay, args.audio_in, args.audio_out, args.audio_rate)
+        audio = AudioDelay(delay, args.audio_in, args.audio_out, args.audio_rate)
 
     cap = open_camera(args.camera)
     if not cap.isOpened():
         sys.exit(f"Could not open camera {args.camera}. Try --list.")
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
-    cap.set(cv2.CAP_PROP_FPS, args.fps)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
 
     ok, frame = cap.read()
     if not ok:
@@ -219,12 +219,12 @@ def main():
     buffer = deque()
 
     try:
-        with pyvirtualcam.Camera(width=width, height=height, fps=args.fps,
+        with pyvirtualcam.Camera(width=width, height=height, fps=fps,
                                  fmt=PixelFormat.BGR, device=args.device) as cam:
-            print(f"Virtual camera: {cam.device}  ({width}x{height} @ {args.fps} fps)")
+            print(f"Virtual camera: {cam.device}  ({width}x{height} @ {fps} fps)")
             if audio:
                 audio.start()
-            print(f"Delay: {args.delay}s - black/silent until the buffer fills. Ctrl+C to quit.")
+            print(f"Delay: {delay}s - black/silent until the buffer fills. Ctrl+C to quit.")
 
             while True:
                 now = time.monotonic()
@@ -232,7 +232,7 @@ def main():
 
                 # Drop frames that are superseded by a newer frame that is
                 # still old enough to be shown.
-                target = now - args.delay
+                target = now - delay
                 while len(buffer) > 1 and buffer[1][0] <= target:
                     buffer.popleft()
 
@@ -252,7 +252,3 @@ def main():
         if audio:
             audio.stop()
         cap.release()
-
-
-if __name__ == "__main__":
-    main()

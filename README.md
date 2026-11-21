@@ -36,6 +36,20 @@ exactly the same time window in both.
 3. **macOS permissions** (System Settings → Privacy & Security): allow your terminal/IDE under
    **Microphone**, **Camera**, **Accessibility** and **Input Monitoring** (the last two are for the global key).
 
+## Windows quick start
+
+1. Install **Python 3.11 or 3.12** from python.org (tick *Add python.exe to PATH*). Newer Pythons may
+   not have ready-made packages for pyvirtualcam yet.
+2. Install **VB-Cable** (right-click the installer > *Run as administrator*), then restart the PC.
+3. Install **OBS Studio**, open it once, click **Start Virtual Camera**, then **Stop**, close OBS.
+4. In the project folder:
+   ```
+   py -3.12 -m pip install -r Requirements.txt
+   py -3.12 app.py
+   ```
+5. In Discord/Zoom: **Input = CABLE Output (VB-Audio Virtual Cable)**, **Camera = OBS Virtual Camera**.
+   Set the camera there BEFORE pressing Start: Windows lets only one app use the real webcam.
+
 ## Run
 
 ```

@@ -145,7 +145,8 @@ class VirtualMicrophone:
             return
         self._hk_proc = subprocess.Popen(
             self._hotkey_command(undo_key), cwd=PROJECT_DIR, text=True, bufsize=1,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))   # Windows: no extra console
         threading.Thread(target=self._read_hotkeys, args=(self._hk_proc, on_event), daemon=True).start()
 
     def _hotkey_command(self, undo_key):

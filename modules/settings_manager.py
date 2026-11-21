@@ -1,41 +1,54 @@
+"""
+settings_manager.py - save / load the user's Unsay settings in settings.json.
+
+Each profile (e.g. "cam0") is stored separately. Missing keys are filled from
+DEFAULT_SETTINGS, so old settings files keep working after updates.
+"""
+
+import copy
 import json
+import os
 
-DEFAULT_SETTINGS = {"video": {"camera": 0, "delay": 1, "width": 1280, "height": 720, "fps": 60, "device": None, "jpeg": False}, "audio": {"enabled": False, "audio_in": None, "audio_out": None, "audio_rate": 48000}, "controls": {"key": "G", "sign": "Left_hand"}}
+SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "settings.json")
 
-def get_settings(cam_name:str):
+DEFAULT_SETTINGS = {
+    "name": "",
+    "audio": {"audio_in": None, "audio_out": None},
+    "video": {"enabled": True, "camera": 0, "width": 1280, "height": 720, "fps": 30, "badge": True},
+    "controls": {"delay": 2.0, "undo_key": "ctrl+shift+z"},
+}
+
+
+def _merge(defaults, saved):
+    """Defaults overwritten by whatever was saved (recursively)."""
+    out = copy.deepcopy(defaults)
+    for k, v in (saved or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge(out[k], v)
+        elif k in out:
+            out[k] = v
+    return out
+
+
+def _read_all():
     try:
-        with open("settings.json", "r") as file:
-            settings = json.load(file)
-        file.close()
-    except:
-        settings = {}
+        with open(SETTINGS_PATH, "r") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
-    if not cam_name in settings:
-        settings[cam_name] = DEFAULT_SETTINGS
 
-    return settings[cam_name]
+def get_settings(cam_name: str = "cam0") -> dict:
+    return _merge(DEFAULT_SETTINGS, _read_all().get(cam_name))
 
-def save_settings(settings:dict, cam_name:str):
-    try:
-        with open("settings.json", "r") as file:
-            settings_file = json.load(file)
-        file.close()
-    except:
-        settings_file = {}
 
-    settings_file[cam_name] = settings
+def save_settings(settings: dict, cam_name: str = "cam0"):
+    data = _read_all()
+    data[cam_name] = settings
+    with open(SETTINGS_PATH, "w") as f:
+        json.dump(data, f, indent=2)
 
-    with open("settings.json", "w") as file:
-        json.dump(settings_file, file)
 
-    file.close()
-
-def get_cam_number():
-    try:
-        with open("settings.json", "r") as file:
-            settings_file = json.load(file)
-        file.close()
-    except:
-        return 0
-
-    return len(settings_file)
+def get_cam_number() -> int:
+    return len(_read_all())

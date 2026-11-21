@@ -155,8 +155,9 @@ class DelayCore:
                                  t - self.mute_started >= self.max_mute):
                     self.mute_started = None
                     self.mute_until_pause = False
-                    if self.freezes and self.freezes[-1][1] is None:
-                        self.freezes[-1][1] = t      # video unfreezes from here
+                    for f in self.freezes:           # close EVERY open freeze
+                        if f[1] is None:
+                            f[1] = t                 # video unfreezes from here
                 else:
                     self.queue.append((self.silence, False, t))
                     return

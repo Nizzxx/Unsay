@@ -4,3 +4,6 @@ numpy==2.5.5
 opencv-python==5.1.0.95
 packaging==26.3
 pyvirtualcam==0.15.0
+sounddevice==0.5.6
+pynput==1.8.2
+pillow

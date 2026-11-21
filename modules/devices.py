@@ -80,6 +80,33 @@ def default_virtual_output():
     return outs[0][1] if outs else None
 
 
+def auto_microphone():
+    """The mic Unsay listens to. None = the system default mic (the normal case:
+    whatever the user already talks into). If the system default is itself a virtual
+    cable, Unsay would hear its own output, so take the first real mic instead."""
+    import sounddevice as sd
+    try:
+        default = sd.query_devices(kind="input")["name"]
+    except Exception:
+        default = ""
+    if default and not any(h in default.lower() for h in VIRTUAL_IN_HINTS):
+        return None
+    mics = list_microphones()
+    return mics[0][1] if mics else None
+
+
+def microphone_label(name):
+    """Readable name for the status line."""
+    if name:
+        return name
+    import sounddevice as sd
+    try:
+        n = sd.query_devices(kind="input")["name"]
+    except Exception:
+        return "your default mic"
+    return "your default mic" if ("mapper" in n.lower() or "primary" in n.lower()) else n
+
+
 def list_cameras(max_index=6):
     """Indices of cameras that deliver frames. Call from the main thread (macOS permissions)."""
     import cv2

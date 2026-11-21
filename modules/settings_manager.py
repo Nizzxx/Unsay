@@ -14,7 +14,8 @@ SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 DEFAULT_SETTINGS = {
     "name": "",
     "audio": {"audio_in": None, "audio_out": None},
-    "video": {"enabled": True, "camera": 0, "width": 1280, "height": 720, "fps": 30, "badge": True},
+    "video": {"enabled": True, "camera": 0, "width": 1280, "height": 720, "fps": 30, "badge": True,
+              "lip_sync": 0.25},
     "controls": {"delay": 2.0, "undo_key": "ctrl+shift+z"},
 }
 

@@ -20,8 +20,8 @@ from tkinter import messagebox
 
 from modules import settings_manager
 from modules.audio_engine import parse_combo
-from modules.devices import (VirtualCamera, VirtualMicrophone, default_virtual_output,
-                             list_cameras, list_microphones, list_virtual_outputs)
+from modules.devices import (VirtualCamera, VirtualMicrophone, auto_microphone,
+                             default_virtual_output, list_cameras, microphone_label)
 
 ctk.set_appearance_mode("light")
 
@@ -84,18 +84,25 @@ class UnsayApp(ctk.CTk):
         self.name_entry = ctk.CTkEntry(left, placeholder_text="...", width=230)
         self.name_entry.grid(row=1, column=1, columnspan=2, sticky="w")
 
-        label(2, "Microphone :")
-        self.mic_menu = ctk.CTkOptionMenu(left, values=[SYSTEM_DEFAULT], width=230)
-        self.mic_menu.grid(row=2, column=1, columnspan=2, sticky="w")
-
-        label(3, "Send audio to :")
-        self.out_menu = ctk.CTkOptionMenu(left, values=[NO_CABLE], width=230)
-        self.out_menu.grid(row=3, column=1, columnspan=2, sticky="w")
+        label(2, "Audio :")
+        self.audio_in, self.audio_out = None, None
+        self.audio_label = ctk.CTkLabel(left, text="detecting...", font=FONT3, anchor="w",
+                                        justify="left", wraplength=240)
+        self.audio_label.grid(row=2, column=1, columnspan=2, sticky="w")
 
         label(4, "Camera :")
         self.cam_menu = ctk.CTkOptionMenu(left, values=[CAMERA_OFF, "0", "1", "2", "3"], width=180)
         self.cam_menu.grid(row=4, column=1, sticky="w")
         ctk.CTkButton(left, text="Find", width=44, command=self.find_cameras).grid(row=4, column=2, sticky="w")
+
+        label(3, "Lip sync :")
+        sync_row = ctk.CTkFrame(left, fg_color="transparent")
+        sync_row.grid(row=3, column=1, columnspan=2, sticky="w")
+        self.sync_slider = ctk.CTkSlider(sync_row, from_=0.0, to=0.5, number_of_steps=10,
+                                         width=170, command=self.on_lip_sync)
+        self.sync_slider.grid(row=0, column=0)
+        self.sync_label = ctk.CTkLabel(sync_row, text="0.25s", font=FONT3, width=45)
+        self.sync_label.grid(row=0, column=1, padx=6)
 
         label(5, "Delay :")
         delay_row = ctk.CTkFrame(left, fg_color="transparent")
@@ -120,9 +127,9 @@ class UnsayApp(ctk.CTk):
 
         self.hint_label = ctk.CTkLabel(
             left, font=("Verdana", 11), text_color=GRAY, justify="left", wraplength=380,
-            text="In Zoom/Discord choose  Mic: BlackHole 2ch (Mac) / CABLE Output (Windows)"
-                 "  and  Camera: OBS Virtual Camera.  Don't pick OBS Virtual Camera above."
-                 "  Windows: pick OBS Virtual Camera in Zoom/Discord BEFORE Start.")
+            text="Once, in Discord/Zoom:  Mic = BlackHole 2ch (Mac) / CABLE Output (Windows),  "
+                 "Camera = OBS Virtual Camera.  Don't pick OBS Virtual Camera above.  "
+                 "Windows: set the camera there before Start.")
         self.hint_label.grid(row=9, column=0, columnspan=3, padx=10, pady=(10, 0))
 
         # ---- right: live view
@@ -168,13 +175,14 @@ class UnsayApp(ctk.CTk):
     # ------------------------------------------------------------ devices --
     def _load_devices(self):
         try:
-            mics = [SYSTEM_DEFAULT] + [name for _, name in list_microphones()]
-            outs = [name for _, name in list_virtual_outputs()] or [NO_CABLE]
+            self.audio_out = default_virtual_output()
+            self.audio_in = auto_microphone()
+            mic_text = microphone_label(self.audio_in)
         except Exception as e:  # PortAudio missing etc.
-            mics, outs = [SYSTEM_DEFAULT], [NO_CABLE]
+            self.audio_in, self.audio_out, mic_text = None, None, "?"
             error_message("Audio", f"Could not list audio devices:\n{e}")
-        self.mic_menu.configure(values=mics)
-        self.out_menu.configure(values=outs)
+        out_text = self.audio_out or NO_CABLE
+        self.audio_label.configure(text=f"{mic_text}  ->  {out_text}")
 
     def find_cameras(self):
         if self.mic and self.mic.running:
@@ -199,11 +207,7 @@ class UnsayApp(ctk.CTk):
         s = self.settings
         if s.get("name"):
             self.name_entry.insert(0, s["name"])
-        mics = self.mic_menu.cget("values")
-        self.mic_menu.set(s["audio"]["audio_in"] if s["audio"]["audio_in"] in mics else SYSTEM_DEFAULT)
-        outs = self.out_menu.cget("values")
-        wanted = s["audio"]["audio_out"] or default_virtual_output_safe()
-        self.out_menu.set(wanted if wanted in outs else outs[0])
+        # (audio devices are detected automatically)
         cam = str(s["video"]["camera"]) if s["video"]["enabled"] else CAMERA_OFF
         values = list(self.cam_menu.cget("values"))
         if cam not in values:
@@ -212,6 +216,9 @@ class UnsayApp(ctk.CTk):
         delay = float(s["controls"]["delay"])
         self.delay_slider.set(delay)
         self.delay_label.configure(text=f"{delay:.1f}s")
+        sync = float(s["video"].get("lip_sync", 0.25))
+        self.sync_slider.set(sync)
+        self.sync_label.configure(text=f"{sync:.2f}s")
         self.key_entry.insert(0, s["controls"]["undo_key"])
         if s["video"]["badge"]:
             self.badge_switch.select()
@@ -221,16 +228,15 @@ class UnsayApp(ctk.CTk):
     def _read_widgets(self):
         s = self.settings
         s["name"] = self.name_entry.get().strip()
-        mic = self.mic_menu.get()
-        s["audio"]["audio_in"] = None if mic == SYSTEM_DEFAULT else mic
-        out = self.out_menu.get()
-        s["audio"]["audio_out"] = None if out.startswith("(") else out
+        s["audio"]["audio_in"] = self.audio_in
+        s["audio"]["audio_out"] = self.audio_out
         cam = self.cam_menu.get()
         s["video"]["enabled"] = cam.isdigit()
         if cam.isdigit():
             s["video"]["camera"] = int(cam)
         s["video"]["badge"] = bool(self.badge_switch.get())
         s["controls"]["delay"] = round(float(self.delay_slider.get()), 1)
+        s["video"]["lip_sync"] = round(float(self.sync_slider.get()), 2)
         s["controls"]["undo_key"] = self.key_entry.get().strip() or "ctrl+shift+z"
         return s
 
@@ -246,6 +252,7 @@ class UnsayApp(ctk.CTk):
             self.start()
 
     def start(self):
+        self._load_devices()            # re-detect (headset plugged in since launch?)
         s = self._read_widgets()
         settings_manager.save_settings(s, PROFILE)
         if not s["audio"]["audio_out"]:
@@ -284,10 +291,11 @@ class UnsayApp(ctk.CTk):
                           "Use the UNSAY button instead. On macOS, allow your terminal in "
                           "Privacy & Security > Accessibility and Input Monitoring.")
 
+        self.mic.core.set_av_offset(s["video"]["lip_sync"])
         if self.safe_switch.get():
             self.mic.set_safe_mode(True)
         self.start_button.configure(text="Stop", fg_color=RED, hover_color="#8e0000")
-        for w in (self.mic_menu, self.out_menu, self.cam_menu):
+        for w in (self.cam_menu,):
             w.configure(state="disabled")
 
     def stop(self):
@@ -298,11 +306,17 @@ class UnsayApp(ctk.CTk):
         self.cam = None
         self.mic = None
         self.start_button.configure(text="Start", fg_color=GREEN, hover_color="#1b5e20")
-        for w in (self.mic_menu, self.out_menu, self.cam_menu):
+        for w in (self.cam_menu,):
             w.configure(state="normal")
         self._show_placeholder("Not running")
         self.state_label.configure(text="● STOPPED", text_color=GRAY)
         self.stats_label.configure(text="")
+
+    def on_lip_sync(self, value):
+        value = round(float(value), 2)
+        self.sync_label.configure(text=f"{value:.2f}s")
+        if self.mic and self.mic.running:
+            self.mic.core.set_av_offset(value)
 
     def on_delay(self, value):
         value = round(float(value), 1)

@@ -97,6 +97,7 @@ class DelayCore:
         self.queue = deque((self.silence, False, None) for _ in range(self.min_frames))
         self.playhead = None        # capture_time of the audio being played right now
         self.freezes = []           # [start, end] capture-time ranges hidden by undo
+        self.av_offset = 0.25       # video runs this much AHEAD of the audio playhead (lip sync)
 
         # VAD state
         self.noise_floor = 1e-3
@@ -273,10 +274,16 @@ class DelayCore:
             p = self.playhead
             if p is None:
                 return None, False
+            # lip sync: show a slightly newer frame (never newer than what was captured)
+            p += min(self.av_offset, max(0.0, len(self.queue) * self.frame_s - 0.1))
             for start, end in reversed(self.freezes):
                 if p >= start and (end is None or p < end):
                     return start, True
             return p, False
+
+    def set_av_offset(self, seconds):
+        with self.lock:
+            self.av_offset = max(0.0, min(0.5, float(seconds)))
 
     def delay_seconds(self):
         with self.lock:

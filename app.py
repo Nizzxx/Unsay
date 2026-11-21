@@ -39,7 +39,7 @@ def display_options(camera: VirtualCamera):
 
     def update_slider_value(value):
         global slider_value
-        slider_value = value
+        slider_value = round(value, 1)
         slider_value_label.configure(text=f"{slider_value}s")
 
     name_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
@@ -61,7 +61,7 @@ def display_options(camera: VirtualCamera):
         delay_frame,
         from_=0,
         to=10,
-        number_of_steps=10,
+        number_of_steps=100,
         command=update_slider_value
     )
     delay_slider.grid(row=0, column=1)

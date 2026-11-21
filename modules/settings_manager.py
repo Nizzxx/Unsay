@@ -29,3 +29,13 @@ def save_settings(settings:dict, cam_name:str):
         json.dump(settings_file, file)
 
     file.close()
+
+def get_cam_number():
+    try:
+        with open("settings.json", "r") as file:
+            settings_file = json.load(file)
+        file.close()
+    except:
+        return 0
+
+    return len(settings_file)

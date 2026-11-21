@@ -23,6 +23,7 @@ Run
     python unsay.py --audio-out "BlackHole"            # mic + camera, fixed 2 s delay
     python unsay.py --audio-out "BlackHole" --delay 3  # fixed 3 s delay
     python unsay.py --audio-out "BlackHole" --mode adaptive
+    python unsay.py --audio-out "BlackHole" --delay 1.5 --undo-key "f9"
     python unsay.py --audio-out "BlackHole" --no-video # mic only
     Then in Zoom/Discord/Meet choose:
         microphone: "BlackHole 2ch" (Mac) / "CABLE Output" (Windows)
@@ -144,6 +145,10 @@ class VideoSync:
                             i = bisect.bisect_right(times, target) - 1
                             out = self._unpack(frames[max(i, 0)])
                             if frozen:
+                                import cv2
+                                small = cv2.resize(out, (16, 9), interpolation=cv2.INTER_AREA)
+                                out = cv2.resize(small, (out.shape[1], out.shape[0]),
+                                                 interpolation=cv2.INTER_LINEAR)
                                 freeze_key, freeze_img = target, out
                         if not frozen:
                             freeze_key, freeze_img = None, None
@@ -153,8 +158,18 @@ class VideoSync:
 
                     ok, frame = cap.read()   # blocks until the next frame: paces the loop
                     if not ok:
-                        self.error = "Lost the camera feed"
-                        break
+                        # macOS sometimes drops frames: retry ~5 s, reopening the camera each second
+                        fails = 0
+                        while self.running and not ok and fails < 100:
+                            time.sleep(0.05)
+                            fails += 1
+                            if fails % 20 == 0:
+                                cap.release()
+                                cap = self._open_camera() or cap
+                            ok, frame = cap.read()
+                        if not ok:
+                            self.error = "Lost the camera feed (is another app using the camera?)"
+                            break
         except Exception as e:  # usually: OBS virtual camera driver not installed
             self.error = f"Virtual camera error: {e}"
         finally:
@@ -199,12 +214,12 @@ class Unsay:
                                 fps=fps, badge=badge) if video else None)
         self.devices = None
 
-    def start(self, hotkeys=True):
+    def start(self, hotkeys=True, on_event=None, undo_key="ctrl+shift+z"):
         self.devices = self.audio.start()
         if self.video:
             self.video.start()
         if hotkeys:
-            self.audio.start_hotkeys()
+            self.audio.start_hotkeys(undo_key=undo_key, on_event=on_event)
         return self.devices
 
     def stop(self):
@@ -214,6 +229,14 @@ class Unsay:
 
     def undo(self):
         return self.audio.undo()
+
+    def unsay_press(self):
+        """GUI button pressed: unsay, and stay hidden while held."""
+        return self.audio.unsay_press()
+
+    def unsay_release(self):
+        """GUI button released: back live."""
+        return self.audio.unsay_release()
 
     def toggle_safe_mode(self):
         return self.audio.toggle_safe_mode()
@@ -251,7 +274,9 @@ def main():
     p.add_argument("--audio-in", default=None, help="real microphone (default: system mic)")
     p.add_argument("--mode", choices=["fixed", "adaptive"], default="fixed",
                    help="fixed = constant delay (default), adaptive = grows/shrinks with speech")
-    p.add_argument("--delay", type=float, default=2.0, help="delay in seconds for fixed mode")
+    p.add_argument("--delay", type=float, default=None, help="delay in seconds for fixed mode")
+    p.add_argument("--undo-key", default=None,
+                   help='key for UNSAY, e.g. "ctrl+shift+z", "f9", "cmd+u", "alt+space"')
     p.add_argument("--camera", type=int, default=0)
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
@@ -262,6 +287,12 @@ def main():
     p.add_argument("--list-cameras", action="store_true")
     a = p.parse_args()
 
+    # Pressing Ctrl+Shift+Z while the terminal is focused sends Ctrl+Z, which
+    # would SUSPEND this program (audio and video stop). Ignore that signal.
+    import signal
+    if hasattr(signal, "SIGTSTP"):
+        signal.signal(signal.SIGTSTP, signal.SIG_IGN)
+
     if a.list_audio:
         list_audio_devices()
         return
@@ -271,10 +302,47 @@ def main():
     if not a.audio_out:
         sys.exit("Give --audio-out (see --list-audio).")
 
+    # Ask the user for the delay and the UNSAY key (Enter = default)
+    try:
+        from modules.audio_engine import parse_combo as _pc
+    except ImportError:
+        from audio_engine import parse_combo as _pc
+    if a.delay is None:
+        ans = input("Delay in seconds (longer = more time to unsay, but longer freeze) [2]: ").strip()
+        try:
+            a.delay = float(ans) if ans else 2.0
+        except ValueError:
+            a.delay = 2.0
+        a.delay = min(max(a.delay, 0.3), 10.0)
+    if a.undo_key is None:
+        while True:
+            ans = input("UNSAY key, e.g. ctrl+shift+z, f9, cmd+u [ctrl+shift+z]: ").strip()
+            a.undo_key = ans or "ctrl+shift+z"
+            try:
+                _pc(a.undo_key)
+                break
+            except ValueError as e:
+                print(f"  {e}")
+
     u = Unsay(audio_out=a.audio_out, audio_in=a.audio_in, video=not a.no_video,
               camera=a.camera, width=a.width, height=a.height, fps=a.fps,
               badge=not a.no_badge, mode=a.mode, delay=a.delay)
-    mic_in, mic_out = u.start()
+    def show(name, result):
+        msg = {"undo": f"UNSAY - removed {result:.2f}s",
+               "safe": f"SAFE MODE {'ON' if result else 'OFF'}",
+               "delay": f"DELAY set to {result:.1f}s",
+               "release": "back live"}.get(name, name)
+        print(f"\n>> {msg}")
+
+    try:
+        from modules.audio_engine import parse_combo
+    except ImportError:
+        from audio_engine import parse_combo
+    try:
+        parse_combo(a.undo_key)
+    except ValueError as e:
+        sys.exit(str(e))
+    mic_in, mic_out = u.start(on_event=show, undo_key=a.undo_key)
     print(f"Mic   : '{mic_in}' -> '{mic_out}'")
     print(f"Mode  : {a.mode}" + (f" ({a.delay:.1f}s)" if a.mode == "fixed" else " (0.5-1.5s)"))
     if u.video:
@@ -283,14 +351,19 @@ def main():
             print(f"Video : FAILED - {u.video.error}")
         else:
             print(f"Video : camera {a.camera} -> '{u.video.virtual_name}'")
-    print("Ctrl+Shift+Z = UNSAY   Ctrl+Shift+S = Safe Mode   Ctrl+C = quit")
+    print(f"{a.undo_key.upper()} = UNSAY (tap = unsay, hold = stay hidden until you let go)")
+    print("Ctrl+Shift+S = Safe Mode   Ctrl+C = quit")
     print("Ctrl+Shift+Up / Down = delay +/- 0.5 s")
+    shown_error = None
     try:
         while True:
             s = u.get_stats()
+            if s["video_error"] and s["video_error"] != shown_error:
+                shown_error = s["video_error"]
+                print(f"\n>> VIDEO STOPPED: {shown_error}")
             mode = "SAFE" if s["safe_mode"] else "auto"
             talk = "talking" if s["speaking"] else "quiet  "
-            frz = "  VIDEO FROZEN" if s["video_frozen"] else "              "
+            frz = "  HIDDEN (holding)" if s["holding"] else ("  VIDEO FROZEN    " if s["video_frozen"] else "                  ")
             print(f"\rdelay {s['delay']:.2f}s (set {s['delay_setting']:.1f}s)  {mode}  {talk}  "
                   f"undos {s['undo_count']}{frz}", end="")
             time.sleep(0.1)

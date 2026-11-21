@@ -69,6 +69,7 @@ class DelayCore:
         drop_per_tick=3,     # max silent frames discarded per output tick
         hangover_ms=200,     # keep "speech" on this long after it stops (no chopping)
         pause_ms=150,        # a pause this long counts as a sentence boundary for undo
+        max_mute=0.6,        # after UNSAY, mute at most this long (or until your next pause)
     ):
         self.rate = rate
         self.frame = int(rate * frame_ms / 1000)
@@ -81,6 +82,11 @@ class DelayCore:
         self.drop_per_tick = drop_per_tick
         self.hangover = round(hangover_ms / frame_ms)
         self.pause_frames = round(pause_ms / frame_ms)
+        self.max_mute = max_mute
+        self.mute_started = None
+        self.holding = False        # UNSAY key held down: stay hidden until released
+        self.hold_started = 0.0
+        self.max_hold = 30.0        # safety: never stay hidden longer than this
         self.valve = self.max_frames + 10   # hard cap on queue length (see pull)
 
         self.lock = threading.Lock()
@@ -142,7 +148,12 @@ class DelayCore:
 
             # After an undo, swallow the rest of the regretted sentence.
             if self.mute_until_pause:
-                if not speech and self.quiet_run >= self.pause_frames:
+                if self.mute_started is None:
+                    self.mute_started = t
+                held = self.holding and (time.monotonic() - self.hold_started) < self.max_hold
+                if not held and ((not speech and self.quiet_run >= self.pause_frames) or
+                                 t - self.mute_started >= self.max_mute):
+                    self.mute_started = None
                     self.mute_until_pause = False
                     if self.freezes and self.freezes[-1][1] is None:
                         self.freezes[-1][1] = t      # video unfreezes from here
@@ -196,50 +207,33 @@ class DelayCore:
 
     # ---------- controls ----------
     def undo(self):
-        """Delete everything still in the buffer back to the last pause."""
+        """UNSAY: everything not yet sent (the whole delay window) never happens,
+        for audio AND video, plus whatever you keep saying until your next pause.
+        Audio and video use the same timestamps, so they are cut identically."""
         with self.lock:
             items = list(self.queue)
             n = len(items)
-            # Walk backwards to find a run of >= pause_frames silent frames.
-            cut = 0                      # default: delete the whole buffer
-            run = 0
-            for i in range(n - 1, -1, -1):
-                if not items[i][1]:
-                    run += 1
-                    if run >= self.pause_frames:
-                        cut = i + run    # keep the pause, delete after it
-                        break
-                else:
-                    run = 0
-            removed = n - cut
-            speech_removed = sum(1 for s in items[cut:] if s[1])
-            if speech_removed == 0:
-                # Nothing spoken is waiting (e.g. a visual mistake while silent):
-                # hide EVERYTHING still in the buffer on video, up to this moment.
-                first_ts = next((it[2] for it in items if it[2] is not None), None)
-                if first_ts is not None:
-                    self.freezes.append([first_ts, time.monotonic()])
-                    self.freezes = self.freezes[-20:]
-                self.mute_until_pause = True
-                self.undo_count += 1
-                self.last_undo_seconds = n * self.frame_s
-                return self.last_undo_seconds
-            kept = items[:cut]
-            if kept:  # short fade on the last kept frame to avoid a click
-                last, sp, lt = kept[-1]
-                fade = np.linspace(1.0, 0.0, len(last), dtype=np.float32)
-                kept[-1] = (last * fade, sp, lt)
-            # replace deleted audio with silence but keep the timestamps,
-            # so the video keeps its timing and knows which part to hide
-            self.queue = deque(kept + [(self.silence, False, it[2]) for it in items[cut:]])
-            first_ts = next((it[2] for it in items[cut:] if it[2] is not None), None)
+            if items:
+                # fade the very next frame out to avoid a click, silence the rest
+                first, _, t0 = items[0]
+                fade = np.linspace(1.0, 0.0, len(first), dtype=np.float32)
+                items = [(first * fade, False, t0)] + [(self.silence, False, it[2]) for it in items[1:]]
+            self.queue = deque(items)
+            first_ts = next((it[2] for it in items if it[2] is not None), None)
             if first_ts is not None:
-                self.freezes.append([first_ts, None])   # end set when mute stops
+                self.freezes.append([first_ts, None])   # ends at the same moment audio resumes
                 self.freezes = self.freezes[-20:]
             self.mute_until_pause = True
             self.undo_count += 1
-            self.last_undo_seconds = removed * self.frame_s
+            self.last_undo_seconds = n * self.frame_s
             return self.last_undo_seconds
+
+    def hold(self, on):
+        """While held, audio stays silent and video stays frozen (hold-to-hide)."""
+        with self.lock:
+            self.holding = bool(on)
+            if on:
+                self.hold_started = time.monotonic()
 
     def set_safe_mode(self, on):
         with self.lock:
@@ -295,6 +289,7 @@ class DelayCore:
                 "speaking": self.speaking,
                 "safe_mode": self.safe_mode,
                 "muting": self.mute_until_pause,
+                "holding": self.holding,
                 "undo_count": self.undo_count,
                 "last_undo_seconds": self.last_undo_seconds,
             }
@@ -322,6 +317,37 @@ def list_audio_devices():
     import sounddevice as sd
     for i, d in enumerate(sd.query_devices()):
         print(f"  {i}: {d['name']}  [{d['max_input_channels']} in / {d['max_output_channels']} out]")
+
+
+SPECIAL_KEYS = {"space", "enter", "esc", "tab", "up", "down", "left", "right"} | {f"f{i}" for i in range(1, 21)}
+_MAC_VK = {"a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11,
+           "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21,
+           "6": 22, "5": 23, "9": 25, "7": 26, "8": 28, "0": 29, "o": 31, "u": 32, "i": 34, "p": 35,
+           "l": 37, "j": 38, "k": 40, "n": 45, "m": 46}
+
+
+def key_vk(name):
+    """Hardware key code for a letter/digit (used when the OS reports no character)."""
+    if sys.platform == "darwin":
+        return _MAC_VK.get(name)
+    if sys.platform == "win32" and len(name) == 1 and name.isalnum():
+        return ord(name.upper())
+    return None
+
+
+def parse_combo(text):
+    """'Ctrl+Shift+Z' -> ({'ctrl','shift'}, 'z'). Accepts cmd/command, alt/option, control."""
+    alias = {"control": "ctrl", "command": "cmd", "option": "alt", "opt": "alt", "return": "enter",
+             "escape": "esc"}
+    parts = [alias.get(p.strip().lower(), p.strip().lower()) for p in text.replace(" ", "").split("+") if p]
+    mods = {p for p in parts if p in ("ctrl", "shift", "cmd", "alt")}
+    keys = [p for p in parts if p not in mods]
+    if len(keys) != 1:
+        raise ValueError(f'Bad key combo "{text}". Examples: "ctrl+shift+z", "f9", "cmd+u".')
+    key = keys[0]
+    if key not in SPECIAL_KEYS and not (len(key) == 1 and key.isalnum()):
+        raise ValueError(f'Unsupported key "{key}". Use a letter, a digit, f1-f20, space, enter, esc, tab or an arrow.')
+    return mods, key
 
 
 class UnsayEngine:
@@ -385,57 +411,90 @@ class UnsayEngine:
         if self._hotkeys is not None:
             self._hotkeys.stop()
 
-    def start_hotkeys(self):
-        """Global hotkeys that work while Zoom/Discord/Safari is the active window.
-        Ctrl+Shift+Z (or Cmd+Shift+Z) = UNSAY, Ctrl+Shift+S = Safe Mode,
-        Ctrl+Shift+Up/Down = delay +/- 0.5 s.
+    def start_hotkeys(self, undo_key="ctrl+shift+z", on_event=None):
+        """Global hotkeys that work while Zoom/Discord is the active window.
+        undo_key: any combo like "ctrl+shift+z", "cmd+u", "alt+space", "f9", "ctrl+1".
+        Fixed extras: Ctrl+Shift+S = Safe Mode, Ctrl+Shift+Up/Down = delay +/- 0.5 s.
         macOS: allow Terminal in Privacy & Security > Accessibility AND Input Monitoring."""
         from pynput import keyboard
         K = keyboard.Key
+        self.undo_key = undo_key
+        want_mods, want_key = parse_combo(undo_key)
         held = set()
-        vks = {"darwin": {"z": 6, "s": 1}, "win32": {"z": 0x5A, "s": 0x53}}.get(sys.platform, {})
+        mod_of = {}
+        for name, keys in {"ctrl": ("ctrl", "ctrl_l", "ctrl_r"), "shift": ("shift", "shift_l", "shift_r"),
+                           "cmd": ("cmd", "cmd_l", "cmd_r"), "alt": ("alt", "alt_l", "alt_r", "alt_gr")}.items():
+            for k in keys:
+                if hasattr(K, k):
+                    mod_of[getattr(K, k)] = name
 
-        def letter(key, c):
+        def is_key(key, name):
+            if name in SPECIAL_KEYS:
+                return hasattr(K, name) and key == getattr(K, name)
             ch = getattr(key, "char", None)
             if ch:
-                if ch.lower() == c:
+                if ch.lower() == name:
                     return True
-                if len(ch) == 1 and ord(ch) == ord(c) - 96:   # Ctrl+letter control char
-                    return True
+                if len(name) == 1 and name.isalpha() and len(ch) == 1 and ord(ch) == ord(name) - 96:
+                    return True          # Ctrl+letter arrives as a control character
             vk = getattr(key, "vk", None)
-            return vk is not None and vk == vks.get(c)
+            return vk is not None and vk == key_vk(name)
+
+        state = {"undo_down": False}
+
+        def emit(name, result):
+            if on_event:
+                try:
+                    on_event(name, result)
+                except Exception:
+                    pass
 
         def on_press(key):
-            if key in (K.ctrl, K.ctrl_l, K.ctrl_r):
-                held.add("ctrl")
-            elif key in (K.cmd, K.cmd_l, K.cmd_r):
-                held.add("cmd")
-            elif key in (K.shift, K.shift_l, K.shift_r):
-                held.add("shift")
-            elif "shift" in held and ("ctrl" in held or "cmd" in held):
-                if letter(key, "z"):
-                    self.undo()
-                elif letter(key, "s") and "ctrl" in held:
-                    self.toggle_safe_mode()
-                elif key == K.up and "ctrl" in held:
-                    self.set_delay(self.core.delay_setting() + 0.5)
-                elif key == K.down and "ctrl" in held:
-                    self.set_delay(self.core.delay_setting() - 0.5)
+            if key in mod_of:
+                held.add(mod_of[key])
+                return
+            name, result = None, None
+            if held == want_mods and is_key(key, want_key):
+                if state["undo_down"]:
+                    return                       # keyboard auto-repeat while held: ignore
+                state["undo_down"] = True
+                name, result = "undo", self.unsay_press()
+            elif held == {"ctrl", "shift"}:
+                if is_key(key, "s"):
+                    name, result = "safe", self.toggle_safe_mode()
+                elif key == K.up:
+                    name, result = "delay", self.set_delay(self.core.delay_setting() + 0.5)
+                elif key == K.down:
+                    name, result = "delay", self.set_delay(self.core.delay_setting() - 0.5)
+            if name:
+                emit(name, result)
 
         def on_release(key):
-            if key in (K.ctrl, K.ctrl_l, K.ctrl_r):
-                held.discard("ctrl")
-            elif key in (K.cmd, K.cmd_l, K.cmd_r):
-                held.discard("cmd")
-            elif key in (K.shift, K.shift_l, K.shift_r):
-                held.discard("shift")
+            released_mod = mod_of.get(key)
+            if released_mod:
+                held.discard(released_mod)
+            if state["undo_down"] and (is_key(key, want_key) or released_mod in want_mods):
+                state["undo_down"] = False
+                self.unsay_release()
+                emit("release", None)
 
         self._hotkeys = keyboard.Listener(on_press=on_press, on_release=on_release)
         self._hotkeys.start()
 
     # controls (safe to call from any thread, including the Tkinter thread)
     def undo(self):
+        """Tap: hide the delay window (plus the end of the current word)."""
         return self.core.undo()
+
+    def unsay_press(self):
+        """Key/button DOWN: unsay now, and stay hidden for as long as it is held."""
+        r = self.core.undo()
+        self.core.hold(True)
+        return r
+
+    def unsay_release(self):
+        """Key/button UP: come back live (audio and video together)."""
+        self.core.hold(False)
 
     def toggle_safe_mode(self):
         return self.core.toggle_safe_mode()

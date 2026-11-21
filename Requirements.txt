@@ -1,0 +1,5 @@
+Python modules :
+pip install opencv-python pyvirtualcam numpy customtkinter
+
+3rd party :
+OBS studio

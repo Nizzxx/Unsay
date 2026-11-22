@@ -19,36 +19,24 @@ real mic    -> safety buffer (delay + UNSAY) -> virtual mic    (BlackHole / VB-C
 real webcam -> same timeline as the audio    -> virtual camera (OBS Virtual Camera)
 ```
 
-Every 20 ms audio frame carries the time it was recorded. The camera always shows the frame
-recorded at the same moment as the audio being played, so lips stay in sync, and an UNSAY hides
+Every frame carries the time it was recorded so that the camera always shows the frame
+recorded at the same moment as the audio being played, UNSAY hides
 exactly the same time window in both.
 
-## Setup (once)
+## Setup (once) For Windows and MacOS
+1. Dependencies
+- OBS Studio for virtual camera (Windows and MacOS)
+- [BlackHole 2ch](https://existential.audio/blackhole/) (MacOS only)
+- [VB-Cable](https://vb-audio.com/Cable/) (Windows only)
 
-1. Install the drivers:
-   - **macOS:** [BlackHole 2ch](https://existential.audio/blackhole/) (`brew install blackhole-2ch`) and
-     OBS Studio (`brew install --cask obs`). Open OBS once, click **Start Virtual Camera**, then **Stop**.
-   - **Windows:** [VB-Cable](https://vb-audio.com/Cable/) and OBS Studio (same OBS step).
 2. Install the Python packages:
    ```
    pip install -r Requirements.txt
    ```
-3. **macOS permissions** (System Settings → Privacy & Security): allow your terminal/IDE under
-   **Microphone**, **Camera**, **Accessibility** and **Input Monitoring** (the last two are for the global key).
+   
+3. In your favorite calling app: **Input = CABLE Output (VB-Audio Virtual Cable)**, **Camera = OBS Virtual Camera**.
 
-## Windows quick start
-
-1. Install **Python 3.11 or 3.12** from python.org (tick *Add python.exe to PATH*). Newer Pythons may
-   not have ready-made packages for pyvirtualcam yet.
-2. Install **VB-Cable** (right-click the installer > *Run as administrator*), then restart the PC.
-3. Install **OBS Studio**, open it once, click **Start Virtual Camera**, then **Stop**, close OBS.
-4. In the project folder:
-   ```
-   py -3.12 -m pip install -r Requirements.txt
-   py -3.12 app.py
-   ```
-5. In Discord/Zoom: **Input = CABLE Output (VB-Audio Virtual Cable)**, **Camera = OBS Virtual Camera**.
-   Set the camera there BEFORE pressing Start: Windows lets only one app use the real webcam.
+4. Enjoy !
 
 ## Run
 

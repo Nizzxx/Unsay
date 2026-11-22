@@ -216,7 +216,7 @@ class VirtualMicrophone:
             try:
                 proc.stdin.close()
                 proc.terminate()
-                proc.wait(timeout=2)
+                proc.wait(timeout=0.5)
             except Exception:
                 try:
                     proc.kill()

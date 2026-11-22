@@ -17,6 +17,8 @@ their stats inside self.after(...), so Tkinter is never touched from another thr
 
 import os
 import sys
+import threading
+import time
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -376,6 +378,10 @@ class UnsayApp(ctk.CTk):
 
     # =========================================================== controls ==
     def toggle_start(self):
+        # ignore clicks while starting/stopping, and double-clicks right after one
+        if getattr(self, "_busy", False) or time.monotonic() - getattr(self, "_last_toggle", 0) < 0.6:
+            return
+        self._last_toggle = time.monotonic()
         if self.mic and self.mic.running:
             self.stop()
         else:
@@ -396,6 +402,7 @@ class UnsayApp(ctk.CTk):
             error_message("Unsay key", str(e))
             return
 
+        self._busy = True
         self.start_button.configure(text="Starting...", state="disabled")
         self.update_idletasks()
         self.mic = VirtualMicrophone(out_name=s["audio"]["audio_out"], in_name=s["audio"]["audio_in"],
@@ -404,6 +411,7 @@ class UnsayApp(ctk.CTk):
             self.mic.start()
         except Exception as e:
             self.mic = None
+            self._busy = False
             self.start_button.configure(text="Start", state="normal")
             error_message("Microphone", f"Could not start the microphone:\n{e}")
             return
@@ -429,25 +437,47 @@ class UnsayApp(ctk.CTk):
                           "Use the UNSAY button instead. On macOS, allow your terminal in "
                           "Privacy & Security > Accessibility and Input Monitoring.")
 
+        self._busy = False
+        self._last_toggle = time.monotonic()
         self.start_button.configure(text="Stop", state="normal", fg_color=FIELD,
                                     hover_color=FIELD_HOVER, text_color=TEXT)
         self.cam_menu.configure(state="disabled")
 
-    def stop(self):
-        if self.cam:
-            self.cam.stop()
-        if self.mic:
-            self.mic.stop()
+    def stop(self, wait=False):
+        cam, mic = self.cam, self.mic
         self.cam = None
         self.mic = None
-        self.start_button.configure(text="Start", state="normal", fg_color=GREEN,
-                                    hover_color=GREEN_HOVER, text_color="#08130c")
+
+        def shut_down():
+            if cam:
+                cam.stop()
+            if mic:
+                mic.stop()
+
+        if wait:                                   # closing the app: finish here
+            shut_down()
+        else:                                      # normal Stop: never freeze the window
+            self._busy = True
+            self.start_button.configure(text="Stopping...", state="disabled")
+            worker = threading.Thread(target=shut_down, daemon=True)
+            worker.start()
+            self._wait_stopped(worker)
+        self.start_button.configure(fg_color=GREEN, hover_color=GREEN_HOVER, text_color="#08130c")
         self.cam_menu.configure(state="normal")
         self._show_placeholder("Press Start")
         self._set_pill("stopped")
         self.stats_label.configure(text="")
         self.delay_now.configure(text="-")
         self.delay_bar.set(0)
+        self._bar = 0
+
+    def _wait_stopped(self, worker):
+        if worker.is_alive():
+            self.after(50, lambda: self._wait_stopped(worker))
+            return
+        self._busy = False
+        self._last_toggle = time.monotonic()
+        self.start_button.configure(text="Start", state="normal")
 
     def on_delay(self, value):
         value = round(float(value), 1)
@@ -501,9 +531,17 @@ class UnsayApp(ctk.CTk):
     def refresh(self):
         try:
             self._refresh_status()
-            self._refresh_preview()
+            self._tick = getattr(self, "_tick", 0) + 1
+            if self._tick % 2 == 0:            # preview 5x a second is plenty
+                self._refresh_preview()
         finally:
             self.after(100, self.refresh)
+
+    @staticmethod
+    def _set_text(widget, text):
+        """Redraw a label only when its words change (redraws are what make clicks lag)."""
+        if widget.cget("text") != text:
+            widget.configure(text=text)
 
     def _refresh_status(self):
         stats = self.mic.stats() if self.mic else None
@@ -523,8 +561,11 @@ class UnsayApp(ctk.CTk):
             self.delay_slider.set(stats["delay_setting"])
             self.delay_value.configure(text=f"{stats['delay_setting']:.1f} s")
 
-        self.delay_now.configure(text=f"{stats['delay']:.1f} s")
-        self.delay_bar.set(min(1.0, stats["delay"] / 5.0))
+        self._set_text(self.delay_now, f"{stats['delay']:.1f} s")
+        bar = round(min(1.0, stats["delay"] / 5.0), 2)
+        if bar != getattr(self, "_bar", None):
+            self._bar = bar
+            self.delay_bar.set(bar)
 
         parts = ["talking" if stats["speaking"] else "listening",
                  f"{stats['undo_count']} unsay{'' if stats['undo_count'] == 1 else 's'}"]
@@ -535,7 +576,7 @@ class UnsayApp(ctk.CTk):
             text += f"\nVideo: {self.cam.error}"
         if self.mic.hotkey_error:
             text += f"\nKey: {self.mic.hotkey_error} (use the button)"
-        self.stats_label.configure(text=text)
+        self._set_text(self.stats_label, text)
 
     def _refresh_preview(self):
         if not (self.preview_on and self.cam and self.cam.preview is not None):
@@ -558,7 +599,7 @@ class UnsayApp(ctk.CTk):
     def on_close(self):
         try:
             self._save_now()
-            self.stop()
+            self.stop(wait=True)
         finally:
             self.destroy()
 
